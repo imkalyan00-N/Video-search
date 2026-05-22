@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 import shutil
 import subprocess
 import os
+import requests
 
 app = FastAPI()
 
@@ -32,7 +33,7 @@ HTML_CONTENT = """
         </button>
 
         <div id="loading" class="mt-6 text-yellow-400 hidden animate-pulse font-medium">
-            ⏳ Extracting frame & searching web...
+            ⏳ Extracting frame & searching the web...
         </div>
 
         <div id="result" class="mt-6 text-left hidden bg-gray-900 p-4 rounded-md border border-green-500/30">
@@ -40,7 +41,7 @@ HTML_CONTENT = """
             <p class="text-sm"><strong>Original Link:</strong> <br>
                 <a id="resLink" href="#" target="_blank" class="text-blue-400 underline break-words"></a>
             </p>
-            <p class="text-sm mt-2"><strong>Duration:</strong> <span id="resDuration" class="text-gray-300"></span></p>
+            <p class="text-sm mt-2"><strong>Status:</strong> <span id="resDuration" class="text-gray-300"></span></p>
         </div>
     </div>
 
@@ -49,7 +50,6 @@ HTML_CONTENT = """
             const fileInput = document.getElementById('videoInput');
             if (!fileInput.files[0]) return alert("Please select a video file!");
             
-            // Show loading, hide previous results
             document.getElementById('loading').classList.remove('hidden');
             document.getElementById('result').classList.add('hidden');
             document.getElementById('searchBtn').disabled = true;
@@ -58,7 +58,6 @@ HTML_CONTENT = """
             formData.append('file', fileInput.files[0]);
 
             try {
-                // Send video to Python backend
                 const response = await fetch('/search', { method: 'POST', body: formData });
                 const data = await response.json();
                 
@@ -100,15 +99,42 @@ async def process_and_search_video(file: UploadFile = File(...)):
         cmd = f"ffmpeg -y -i \"{video_path}\" -ss 00:00:01 -vframes 1 \"{frame_path}\""
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # 3. API Search Integration
-        # Ikkada nuvvu future lo SerpApi leda TinEye api connect cheyali
-        # API ki 'frame_path' image ni pampisthe avi link isthayi.
-        # Present testing kosam dummy response isthunnam:
+        # 3. Upload frame to ImgBB
+        imgbb_api_key = "2004d341fc8640cc32f3f188daf97b53"
+        with open(frame_path, "rb") as image_file:
+            img_response = requests.post(
+                f"https://api.imgbb.com/1/upload?key={imgbb_api_key}",
+                files={"image": image_file}
+            ).json()
+            
+        if "data" not in img_response:
+            return {"success": False, "error": "Image upload failed"}
+            
+        public_image_url = img_response["data"]["url"]
+
+        # 4. Search that image on Google Lens using SerpApi
+        serpapi_key = "723413977cdcd590c3d07450921efa5dee502ed3d5706e9502848459c04f575c"
+        search_params = {
+            "engine": "google_lens",
+            "url": public_image_url,
+            "api_key": serpapi_key
+        }
         
-        original_link = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" # Replace with API result
-        original_duration = "3:32 mins" # Replace with YouTube API result
+        lens_response = requests.get("https://serpapi.com/search.json", params=search_params).json()
+
+        # 5. Find the first YouTube or Video link from the results
+        original_link = "No video link found. Try a different clip!"
         
-        # 4. Clean up memory (Delete files after process is done)
+        if "visual_matches" in lens_response:
+            for match in lens_response["visual_matches"]:
+                link = match.get("link", "")
+                if "youtube.com" in link or "youtu.be" in link or "vimeo" in link:
+                    original_link = link
+                    break # Stop at the first video match
+        
+        original_duration = "Check the link for full video details"
+        
+        # 6. Clean up memory
         if os.path.exists(video_path): os.remove(video_path)
         if os.path.exists(frame_path): os.remove(frame_path)
         
