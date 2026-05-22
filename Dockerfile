@@ -1,16 +1,14 @@
 # Use official Python lightweight image
 FROM python:3.10-slim
 
-# Install FFmpeg for video processing
-RUN apt-get update && apt-get install -y ffmpeg
-
 # Set working directory
 WORKDIR /app
 
-# Copy files
+# Copy requirements and install them
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy main code
 COPY main.py .
 
 # Expose port and run the app
